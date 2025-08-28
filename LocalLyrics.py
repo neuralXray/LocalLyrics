@@ -1,8 +1,9 @@
 from gi.repository import GObject, Gtk, Peas, RB, Gdk, GLib
 import os
-import urllib
-import pylrc
+import urllib.parse
+import pylrc.pylrc as pylrc
 import codecs
+from subprocess import check_output
 
 
 LocalLyrics_UI = """
@@ -12,6 +13,11 @@ LocalLyrics_UI = """
     </toolbar>
 </ui>
 """
+
+def theme_is_dark():
+    theme = check_output(["xfconf-query", "-c", "xsettings", "-p", "/Net/ThemeName"])\
+            .decode("utf-8").strip().lower()
+    return 'dark' in theme
 
 class LocalLyrics(GObject.Object, Peas.Activatable):
     __gtype_name__ = 'LocalLyrics'
@@ -34,6 +40,7 @@ class LocalLyrics(GObject.Object, Peas.Activatable):
         self.psc_id = self.sp.connect('playing-song-changed', self.show_Lyrics)
         #self.ec_id = self.sp.connect('elapsed-changed', self.show_Lyrics)
         #self.psp_id = self.sp.connect('playing-song-property-changed', self.show_Lyrics)
+        self.timeout_id = 0
     
     def do_deactivate(self):
         self.shell.remove_widget(self.vbox, RB.ShellUILocation.MAIN_BOTTOM)
@@ -42,8 +49,13 @@ class LocalLyrics(GObject.Object, Peas.Activatable):
         #self.sp.disconnect(self.ec_id)
         #self.sp.disconnect(self.psp_id)
 
+        if self.timeout_id > 0:
+            GLib.source_remove(self.timeout_id)
+
     def show_Lyrics(self, sp, _):
         song = self.sp.get_playing_entry()
+        if song is None:
+            return
         songFile = song.get_playback_uri()
         index = songFile.rfind('.')
         songFile = songFile[7:index] + ".lrc"
@@ -72,7 +84,7 @@ class LocalLyrics(GObject.Object, Peas.Activatable):
             self.line_index = 0
             #self.need_change = True
             self.line_num = len(self.lrc_content)
-            Gdk.threads_add_idle(GLib.PRIORITY_DEFAULT_IDLE, self.idle_showLyrics)
+            self.timeout_id = Gdk.threads_add_timeout(GLib.PRIORITY_DEFAULT, 1000, self.idle_showLyrics)
             return
         else:
             noLyricsFound = True
@@ -89,14 +101,19 @@ class LocalLyrics(GObject.Object, Peas.Activatable):
             return False
         if self.sp.props.playing:
             current_time = self.sp.get_playing_time()[1]
+            if theme_is_dark():
+                foreground = 'Yellow'
+            else:
+                foreground = 'Black'
+
             if self.line_index == 0:
                 for i in range(3):
-                    self.lineBoxes[i].set_markup("<span foreground=\"Yellow\" size=\"large\">" + self.lrc_content[i].text + "</span>")
+                    self.lineBoxes[i].set_markup(f"<span foreground=\"{foreground}\" size=\"xx-large\">" + self.lrc_content[i].text + "</span>")
                 self.line_index = 2
             
             if current_time > self.lrc_content[self.line_index].time:
                 self.line_index += 1
-                self.lineBoxes[self.newest_index].set_markup("<span foreground=\"Yellow\" size=\"large\">" + self.lrc_content[self.line_index].text + "</span>")
+                self.lineBoxes[self.newest_index].set_markup(f"<span foreground=\"{foreground}\" size=\"xx-large\">" + self.lrc_content[self.line_index].text + "</span>")
                 if self.newest_index == 2:
                     self.newest_index = 0
                 else:
@@ -127,7 +144,7 @@ class LocalLyrics(GObject.Object, Peas.Activatable):
         self.textview.set_wrap_mode(Gtk.WrapMode.WORD)
         self.textbuffer = Gtk.TextBuffer()
         self.textview.set_buffer(self.textbuffer)'''
-        
+
 
         self.labelBox.pack_start(self.lryicsLabel, expand=True, fill=True, padding=20)
         self.line0Box.pack_start(self.line0, expand=True, fill=True, padding=20)
